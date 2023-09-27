@@ -1,0 +1,591 @@
+---
+title: "Analisi ricavi azienda con modelli per la previsione"
+author: "Carmine Landolfi"
+date: "2023-05-09"
+output: 
+  word_document: default
+  pdf_document: default
+  code_folding: hide
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_float: yes
+    theme: cerulean
+    code_folding: hide
+editor_options: 
+  markdown: 
+    wrap: sentence
+---
+
+# Abstract
+
+Il lavoro in considerazione consiste nell'effettuare un'analisi di serie storiche.
+In particolare si considerano informazioni riguardanti un'azienda, ovvero: ricavi, quantità venduta, costo medio e numero di dipendenti.
+L'obiettivo principale è individuare le principali caratteristiche delle serie per poter comprendere qual è il modello migliore per fare prevsioni sulla variabile ricavo.
+Inoltre, verranno stabiliti anche una serie di scenari plausibili per capire come varierà il ricavo in base a tali scenari e quindi permettere all'azienda di prendere la scelta migliore nel minor tempo possibile.
+
+# Presentazione dei dati
+
+La serie storica presa in considerazione è una serie strorica presente su **Kaggle**.
+Tale serie tratta una delle più semplici ed efficaci descrizioni del funzionamento di un'impresa, ovvero considerare i legami tra i costi sostenuti, i volumi di vendita e i risultati economici conseguiti. La serie storica osservata è una serie mensile, in particolar modo il periodo considerato va dal 2015 al 2019.
+Le variabili descritte sono:
+
+-   **Period**: rappresenta quando sono state effettaute le rilevazioni;
+-   **Revenue**: Ricavi dell'azienda in valuta estera;
+-   **Sales_quantity**: quantità vendute;
+-   **Average_cost**: costi di produzione in valuta estera;
+-   **The_average_annual_payroll_of_the_region**: numero di dipendenti.
+
+In questo lavoro vengono descritte le varie relazioni tra le variabili definite sopra.
+I proncipali obiettivi sono:
+
+1.  Descrizione dei dati;
+2.  Previsioni sui ricavi dell'azienda nel tempo, sulla base delle informazioni fornite dai dati osservati.
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(forecast)
+dat_2<- read.csv("C:\\Users\\carmi\\Documents\\Io\\università\\Terzo anno\\secondo semestre\\Laboratorio di statistica\\progetto finale\\Month_Value_1.csv")
+# questo comando serve per selezionare le righe interessate, in quanto alla fine il dataset presenta solo valori mancanti
+dat<-dat_2[1:60,]
+```
+La prima cosa da fare è creare un dataset contenente le variabili interessate trasformate in serie storiche mensili.
+
+```{r, warning=FALSE,message=FALSE}
+Revenue<-ts(dat[,2],frequency=12,start=2015)
+Sales_quantity<-ts(dat[,3],frequency=12,start=2015)
+Average_cost<-ts(dat[,4],frequency=12,start=2015)
+The_average_annual_payroll_of_the_region<-ts(dat[,5],frequency=12,start=2015)
+dat_5<-cbind(Revenue,Sales_quantity,Average_cost,The_average_annual_payroll_of_the_region)
+```
+
+
+
+# Analisi descrittiva serie storica
+
+L'analisi descrittiva ha come scopo:
+
+-   determinare le principali componenti che caratterizzano una serie storica: Trend - Stagionalità - Ciclicità.
+-   identificare irregolarità , disomogeneità e cambiamenti di livello.
+
+Prima di proseguire con le analisi è necessario osservare se sono presenti valori mancanti o valori anomali.
+Inoltre, per poter osservare tale serie è necessario convertire la colonna interessata in un oggetto time series attraverso la funzione ts().
+
+Dato che si è di fronte ad una serie storica multivariata è importante fare un'analisi generale su tutte le variabili e poi soffermarsi su ogni singola variabile.
+
+```{r , warning=FALSE,message=FALSE}
+autoplot(ts(dat[,2:5],frequency=12,start=2015),facet=TRUE,)+ylab("Time series")
+GGally::ggpairs(dat[,2:5])+ggtitle("Analisi distribuzione congiunte bivariate")
+
+```
+
+Si può notare che il ricavo, la quantità venduta e i costi presentano una distribuzione molto simile, mentre il numero di dipendenti presenta una distribuzione differente rispetto alle altre.
+Solo due variabili sembrano essere fortemente correlate, ovvero il ricavo e le quantità vendute. Per verficare se sonom realmente correlate bisognerebbe andare a verificare tale legame eliminando la componente di trend che caratterizza le serie e capire se si tratta di correlazione spuria o meno. Infatti, tale componente potrebbe incidere molto sul legame presente tra due serie storiche.
+Per confermare tale legame tra le variabili possiamo usare il **correlation test**.
+A tal fine possiamo eseguire un test delle ipotesi, però tale test si basa sull'ipotesi che la distribuzione congiunta è una normale bivariata:
+
+-   **IPOTESI H0** : i valori delle coppie di variabili sono indipendenti;
+-   **IPOTESI H1** : i valori delle coppie di variabili sono legati da una relazione lineare.
+
+```{r , warning=FALSE,message=FALSE}
+cor.test(dat[,2], dat[,3])
+```
+
+Dato che il valore del p-value è minore di alfa si rifiuta l'ipotesi H0, ovvero che le variabili sono incorrelate.
+Quindi le due variabili sono legate linearmente, in particolar modo presentano legame lineare positivo.
+
+Per rimuovere l'effetto del trend possiamo applicare le differenze con ritardo 1 per entrambe le serie e confrontarle.
+
+```{r , warning=FALSE,message=FALSE}
+cor_rev_sales<-(cor(diff(dat_5[,1]),diff(dat_5[,2])))
+as.data.frame(cor_rev_sales)
+```
+
+Anche rimuovendo la componente di trend alle due serie, quest'ultime risultano altamente correlate. Infatti, la correlazione è pari a 0.86 e ciò implica che non si è in presenza di correlazione spuria.
+
+## ANALISI UNIVARIATA
+
+Ora è possibile soffermarsi sulle singole variabili.
+
+La prima serie storica considerata è la variabile dipendente **Revenue**.
+
+### Revenue
+
+```{r , warning=FALSE,message=FALSE}
+library(dygraphs)
+interactive_plot<-dygraph(Revenue)
+dyRangeSelector(interactive_plot, dateWindow = c("2015-01-01", "2019-12-31"))
+```
+
+Dal grafico si può notare che non sono presenti valori mancanti.
+Inoltre, sembra non esserci la presenza di valori anomali in quanto non si notano osservazioni che assumono valori totalmente differenti rispetto ai valori vicini.
+Dato che non si è in presenza di dati mancanti e di valori anomali si può procedere con l'analisi delle componenti principali.
+
+#### Trend, stagionalità e ciclicità
+
+Dal grafico della serie storica si può notare la presenza di stagionalità e un trend crescente.
+Inoltre, la serie storica non presenta una componente cicilica, dato che non sono presenti cambi di pendenza.
+Si può trovare conferma di quanto affermato attraverso determinati grafici utili per individuare tali componenti.
+
+Il primo grafico considerato è il **Seasonal plot**.
+
+```{r  , warning=FALSE,message=FALSE}
+ggseasonplot(Revenue,year.labels=TRUE,year.labels.left=TRUE)+
+  ylab("Revenue")+
+  ggtitle("Seasonal plot")
+```
+
+Il secondo grafico considerato è il **Seasonal subseries plot**.
+
+```{r , warning=FALSE,message=FALSE}
+ggsubseriesplot(Revenue)+
+   ylab("Revenue")+
+  ggtitle("Seasonal subseries plot")
+```
+
+Dall'analisi di tali grafici viene confermata la presenza di stagionalità, in quanto tale grafico raggruppa le osservazioni per ogni mese e si nota che i valori medi osservati per ogni mese sono molto differenti tra loro. Ciò implica la presenza di stagionalità perchè si ha in media comportamenti molto differenti tra i vari mesi.
+Inoltre, dal seasonal subseries si nota anche la presenta di un trend prevalentemente crescente, perchè le osservazioni anno dopo anno tendono ad aumentare di valore.
+Quindi i ricavi crescono con il passare degli anni.
+Data la presenza di trend e stagionalità la serie storica non è stazionaria e si può trovare conferma dall'osservazione del correlogramma.
+
+```{r , warning=FALSE,message=FALSE}
+ggAcf(Revenue)
+```
+
+Tale grafico permette di stabilire se la serie storica è stazionaria o meno.
+Tramite il correlogramma andiamo a confrotare la serie storica ai vari ritardi (h).
+Ad esempio al ritardo h=1, implica che si sta confrontando l'osservazione di dicembre del 2019 con quella novembre del 2019.
+Quindi si osservano le variazioni tra le osservazioni.
+Tale grafico conferma quanto affermato prima sul trend, infatti, si nota che le singole barrette tendono a 0 lentamente quindi siamo in presenza di trend e inoltre abbiamo che ogni tre osservazioni nel correlogramma si ripete sempre lo stesso andamento, quindi siamo in presenza di stagionalità.
+Data la presenza di tali componenti si può concludere che la serie storica analizzata non è stazionaria.
+Quindi non ha media e varianza costante e che l'autocovarianza non dipende solo dal ritardo h ma anche dal tempo t.
+Un altro fattore che permette di determinare che la serie storica non è stazionaria è che ci sono molte barrette al di fuori delle linee tratteggiate, ovvero gli estremi dell'intervallo di confidenza, quindi le varie autocorrelazioni non sono statisticamente nulle.
+
+#### EFFETTO DI CALENDARIO
+
+Dato che si è in presenza della variabile Revenue da parte di un'azienda potrebbe avere senso andare a verificare se è presente l'effetto di calendario su tale variabile e quindi procedere con la rimozione di tale effetto.
+Ci concentriamo solo su Revenue e Sales_quantity, mentre non lo andremo a calcolare su Average_cost dato che non avrebbe senso in quanto è già un valore medio.
+
+```{r, warning=FALSE,message=FALSE}
+dframe <- cbind(Monthly=ts(dat[,2],frequency=12,start=2015),DailyAverage = ts(dat[1:60,2],frequency=12,start=2015)/monthdays(ts(dat[1:60,2],frequency=12,start=2015)))
+par(mfrow=c(2,1))
+Revenue_adj<- autoplot(ts(dframe[,1]))+ ylab("Revenue")+ ggtitle("Calendar effect removed")
+Revenue_not_adj <- autoplot(ts(dframe[,2])) + ylab("Revenue") + ggtitle("Calendar effect not removed")
+gridExtra::grid.arrange(Revenue_adj,Revenue_not_adj,nrow=2,top ="Comparison between adjusted and non-adjusted Revenue")
+```
+
+Analizzando tale grafico si può notare che in realtà l'effetto di calendario non influisce in modo netto sulla nostra serie storica.
+Quindi è possibile anche continuare senza rimuovere tale effetto.
+
+Oltre all'effetto di calendario per tale serie storica si potrebbe andare ad applicare anche la correzione sull'inflazione, però nella descrizione del dataset non è nota la nazione e quindi non possibile applicarlo in qunto tale valore cambia da nazione a nazione.
+
+### AVERAGE_COST
+
+Per quanto concerne Average_cost non ha senso andare a verificare se è presente o meno l'effetto di calendario, in quanto rappresenta il costo medio dei prodotti venduti .
+
+```{r , warning=FALSE,message=FALSE}
+interactive_plot<-dygraph(Average_cost)
+dyRangeSelector(interactive_plot, dateWindow = c("2015-01-01", "2019-12-31"))
+```
+
+Dal grafico si può notare che non sono presenti valori mancanti e valori anomali.
+Dato che non si è in presenza di dati mancanti e di valori anomali si può procedere con l'analisi delle componenti principali.
+
+#### Trend, stagionalità e ciclicità
+
+Dall'autoplot effettuato precedentemente si può notare che la serie storica sembra presentare inizialmente un trend leggermente crescente e poi sembra essere abbastanza costante, mentre sembrerebbe non esserci stagionalità.
+
+Il primo grafico considerato è il **Seasonal plot**.
+
+```{r  , warning=FALSE,message=FALSE}
+ggseasonplot(Average_cost,year.labels=TRUE,year.labels.left=TRUE)+
+  ylab("Average cost")+
+  ggtitle("Seasonal plot")
+```
+
+Segue il **seasonal subseries plot**.
+
+```{r , warning=FALSE,message=FALSE}
+ggsubseriesplot(Average_cost)+
+   ylab("Average cost")+
+  ggtitle("Seasonal subseries plot")
+```
+
+Analizzando tali grafici sembra essere presente una stagionalità molto leggera, in quanto i valori medi per i vari mesi assumono valori differenti.
+Dal seasonal subseries plot si può confermare quanto detto precedentemente sul trend, in quanto inizialmente il trend è crescente e poi presenta dei cambi di livello.
+Data la presenza di trend e stagionalità la serie storica non è stazionaria e si può trovare conferma di quanto affermato tramite il correlogramma.
+
+```{r , warning=FALSE,message=FALSE}
+ggAcf(Average_cost)
+```
+
+Tale grafico conferma quanto affermato prima sul trend, infatti, si nota che le singole barrette tendono a 0 lentamente quindi siamo in presenza di trend e inoltre abbiamo che ogni tre osservazioni nel correlogramma si ripete sempre lo stesso andamento, quindi siamo in presenza di stagionalità.
+Data la presenza di tali componenti si può concludere che la serie storica analizzata non è stazionaria.
+Quindi non ha media e varianza costante e che l'autocovarianza non dipende solo dal ritardo h ma anche dal tempo t.
+Un altro fattore che ci permette di determinare che la serie storica non è stazionaria è che ci sono molte barrette al di fuori delle linee tratteggiate, ovvero gli estremi dell'intervallo di confidenza.
+Quindi non sono statisticamente nulle.
+
+### Sales_quantity
+
+La variabile considerata consiste nella quantità venduta dall'impresa per ogni mese.
+
+```{r , warning=FALSE,message=FALSE}
+interactive_plot<-dygraph(Sales_quantity)
+dyRangeSelector(interactive_plot, dateWindow = c("2015-01-01", "2019-12-31"))
+
+```
+
+Dal grafico si può notare che non sono presenti valori mancanti.
+Inoltre, sembra non esserci la presenza di valori anomali in quanto non si notano osservazioni che assumono valori totalmente differenti rispetto ai valori viicini.
+Dato che non si è in presenza di dati mancanti e di valori anomali si può procedere con l'analisi delle componenti principali.
+
+#### Trend, stagionalità e ciclicità
+
+Dal grafico della serie storica si può notare la presenza di stagionalità e un trend crescente.
+Inoltre, la serie storica non presenta una componente cicilica, dato che non sono presenti cambi di pendenza.
+Si può trovare conferma di quanto affermato attraverso determinati grafici utili per individuare tali componenti.
+
+Il primo grafico considerato è il **Seasonal plot**.
+
+```{r , warning=FALSE,message=FALSE }
+ggseasonplot(Sales_quantity,year.labels=TRUE,year.labels.left=TRUE)+
+  ylab("Sales quantity")+
+  ggtitle("Seasonal plot")
+```
+
+Il secondo grafico considerato è il **Seasonal subseries plot**.
+
+```{r , warning=FALSE,message=FALSE}
+ggsubseriesplot(Sales_quantity)+
+   ylab("Sales quantity")+
+  ggtitle("Seasonal subseries plot")
+```
+
+Dall'analisi di tali grafici viene confermata la presenza di stagionalità, in quanto tale grafico raggruppa le osservazioni per ogni mese e si nota che i valori medi osservati per ogni mese sono molto differenti tra loro, questo implica la presenza di stagionalità perchè abbiamo in media comportamenti molto differenti tra i vari mesi.
+Inoltre, dal seasonal subseries si notare anche la presenta di un trend prevalentemente crescente, perchè le osservazioni anno dopo anno tendono ad aumentare di valore.
+Quindi le quantità vendute crescono con il passare degli anni.
+Data la presenza di trend e stagionalità la serie storica non è stazionaria e si può trovare conferma dall'osservazione del correlogramma.
+
+```{r , warning=FALSE,message=FALSE}
+ggAcf(Sales_quantity)
+```
+
+Tale grafico conferma quanto affermato prima sul trend, infatti si nota che le singole barrette tendono a 0 lentamente quindi siamo in presenza di trend e inoltre abbiamo che le osservazioni nel correlogramma si ripetono sempre con lo stesso andamento, quindi si è in presenza di stagionalità.
+Data la presenza di tali componenti si può concludere che la serie storica analizzata non è stazionaria.
+Quindi non ha media e varianza costante e che l'autocovarianza non dipende solo dal ritardo h ma anche dal tempo t.
+Un altro fattore che permette di determinare che la serie storica non è stazionaria è che ci sono molte barrette al di fuori delle linee tratteggiate, ovvero gli estremi dell'intervallo di confidenza, quindi le varie autocorrelazioni non sono statisticamente nulle.
+
+#### EFFETTO DI CALENDARIO
+
+Dato che si è in presenza della variabile Sales_quantity da parte di un'azienda potrebbe avere senso andare a verificare se è presente l'effetto di calendario su tale variabile e quindi procedere con la rimozione di tale effetto.
+
+
+```{r , warning=FALSE,message=FALSE}
+dframe_2 <- cbind(Monthly=ts(dat[,3],frequency=12,start=2015),DailyAverage = ts(dat[,3],frequency=12,start=2015)/monthdays(ts(dat[,3],frequency=12,start=2015)))
+par(mfrow=c(2,1))
+Sales_quantity_not_adj<-autoplot(ts(dframe_2[,1])) + ylab("Sales quantity") + ggtitle("Calendar effect not removed")
+Sales_quantity_adj <- autoplot(ts(dframe_2[,2])) + ylab("Sales quantity") + ggtitle("Calendar effect removed")
+gridExtra::grid.arrange(Sales_quantity_adj,Sales_quantity_not_adj,nrow=2,top ="Comparison between adjusted and non-adjusted Sales quantity")
+```
+
+Analizzando tale grafico si può notare che in realtà l'effetto di calendario non influisce in modo netto sulla nostra serie storica.
+Quindi è possibile anche continuare senza rimuovere tale effetto.
+
+## DECOMPOSIZIONE DELLA SERIE REVENUE
+
+Prima di effettuare previsioni tramite modelli di previsione ha senso andare a estrarre le varie componenti della seria storica in modo da comprendere qual è la componente principale della serie considerata e quanto incidono tali componenti sulla serie.
+La serie storica su cui ci soffermiamo è **Revenue**, ovvero la variabile che si vuole prevedere.
+Useremo due tipi di decomposizione per poter confrontare tali risultati: 
+1. X11;
+2. STL
+Si possono usare tali tipi di decomposizioni perchè dato che si è in presenza di trand costante può essere usata la decomposizione additiva. Infatti l'STL può essere calcolata solo se è necessaria la decomposizione additiva. 
+
+### X11
+
+```{r , warning=FALSE,message=FALSE}
+library(seasonal)
+x11.fit <- seas(dat_5[,1], transform.function="auto", x11="")
+autoplot(x11.fit) + ggtitle("X11 decomposition of Revenue") + ylab("Components of time series Revenue ")
+```
+
+### STL
+
+```{r , warning=FALSE,message=FALSE}
+stl.periodic <- stl(dat_5[,1], s.window="periodic", robust=TRUE)
+autoplot(stl.periodic) +
+ggtitle("STL decomposition of Revenue (periodic seasonality)") + ylab("Components of time series Revenue")
+
+```
+
+Entrambi i metodi di decomposizione presentano risultati molto simili, in particolar modo si evince che la componente principale della serie è il trend, segue la stagionalità e infine la componente residuale.
+Questo risultato conferma che i risultati sono accettabili perchè i residui saranno più importanti di trend e stagionalità solo se la serie storica è stazionaria.
+Quindi si ha un'ulteriore conferma del fatto che la serie storica non è stazionaria.
+Si può notare che la componente di trend è carattezzata da un legame lineare positivo .
+
+## Prevsione modelli di benchmark
+
+I modelli di previsione di benchmark sono molto semplici, i quali solitamente vengono confrontati con modelli più complessi. Per comprendere se tali modelli complessi permettono realmente di avere previsioni più accurate rispetto a modelli molto semplici.
+Tale approccio è utile per capire se realemente ha senso considerare modelli più complessi.
+I Metodi di previsione considerati sono: 
+
+- Average method; 
+
+- Naive method; 
+
+- Seasonal naive method; 
+
+- Drift method.
+
+```{r , warning= FALSE, message= FALSE}
+x<- dim(dat)[1]-12
+av_method<-meanf(ts(dat[1:x,2],frequency=12,start=2015),h=12)
+Naive_method<-naive(ts(dat[1:x,2],frequency=12,start=2015),h=12)
+Sea_naive_method<-snaive(ts(dat[1:x,2],frequency=12,start=2015),h=12)
+Drift_method<-rwf(ts(dat[1:x,2],frequency=12,start=2015), h=12, drift=TRUE)
+
+
+autoplot(Revenue)+
+  autolayer(av_method,series="Mean",PI=FALSE)+
+  autolayer(Naive_method,series="Naive",PI=FALSE)+
+  autolayer(Sea_naive_method,series="Seasonal naive",PI=FALSE)+
+  autolayer(Drift_method,series="Drift",PI=FALSE)+ 
+  ggtitle("Previsioni con modelli di benchmark")
+```
+
+Dall'analisi di tali metodi, si può notare che nessun metodo riesce a prevedere bene i dati.
+Però, sembra che il modello migliore sia il Seasonal Naive, questo è dovuto proprio dal fatto che riesce a catturare la componente stagionale.
+Per poter trovare conferma in quanto affermato si può verificare l'accuratezza di tali metodi e effettuare un'analisi di residui necessaria per comprendere se sono state catturate bene tutte le componenti.
+
+### MISURE DI ACCURATEZZA
+
+Si possono valutare diverse misure di accuratezza, come:
+
+* RMSE: root mean squared error; 
+
+* MAE: median absolute deviation; 
+
+* MAPE: mean absolute percentage error; 
+
+* MASE: mean absolute scaled error.
+
+```{r , warning=FALSE,message=FALSE}
+test<- window(Revenue,start=2019)
+valutazione<-rbind("Average_method" = accuracy(av_method,test)[,c(2,3,5,6)][2,],
+"Naive_method" = accuracy(Naive_method,test)[,c(2,3,5,6)][2,],
+"Seasonal_ naive_method" = accuracy(Sea_naive_method,test)[,c(2,3,5,6)][2,],
+"Drift_method" = accuracy(Drift_method,test)[,c(2,3,5,6)][2,])
+
+
+as.data.frame(valutazione)
+```
+
+Dall'analisi delle misure di accuratezza risulta che il Seasonal naive è il metodo migliore, in quanto presenta valori più bassi rispetto agli altri. Questo risultato era plausibile in quanto il seasonal naive permette di catturare la stagionalità, quindi permette di fare prevsioni migliori rispetto agli altri modelli di benchmark.
+
+Dato che il modello migliore risulta essere il seasonal naive si può procedere con l'analisi dei residui solo di tale modello e quindi verificare se presenta le caratteristiche che dovrebbero avere i residui per poter essere considerato un buon modello.
+
+### ANALISI DEI RESIDUI
+
+```{r , warning=FALSE,message=FALSE}
+checkresiduals(Sea_naive_method)
+```
+Analizzando i residui per tale modello risulta che nei residui è presente un minimo di struttura, in quanto non tutte le osservazioni oscillano intorno a un valore medio costante e di conseguenza questo potrebbe influire negativamente sulle nostre previsioni. Osservando il correlogramma si può notare che solo un autocorrelazione risulta statisticamente significativa e quindi difficilemte i residui risulterebbero incorrelati. Osservando la distribuzione dei residui sembra non esssere simmetrica e inoltre presenta un accenno di bimodalità.
+
+Per verificare se i residui sono incorrelati tra loro è possibile eseguire il test di Ljung-Box:
+
+-   **IPOTESI H0** : Le autocorrelazioni sono tutte pari a zero;
+-   **IPOTESI H1** : Almeno una è diversa da zero.
+
+Osservando il test di Ljung-Box si nota che il p-value è pari a 0.06, il quale è un valore molto al limite, in quanto in base al valore di alfa potrebbe risultare statisticamente significativo o meno. Soffermandoci su alpha pari a 0.05 risulterebbe che i residui sono incorrelati.
+È importante verificare se i residui sono incorrelati perchè il non soddisfacimento di tale ipotesi porterebbe a distorsioni nelle previsioni.
+
+## MODELLI DI PREVISIONE
+
+Qui si ipotizza un modello di regressione lineare multiplo 
+                 **Y= β_0 + β_1X_1 + β_2X_2 +...+ β_kX_k** ,
+dove **k** rappresenta il numero di predittori considerati e **Y** è la variabile revenue, mentre le **X_i** sono i predittori considerati nel modello.
+
+Come primo modello si considera il modello più complesso, ovvero il modello dove sono presenti tutti i predittori compreso trend e stagionalità.
+
+```{r , warning=FALSE,message=FALSE}
+mod_1<-tslm(formula = Revenue ~ Sales_quantity + Average_cost + The_average_annual_payroll_of_the_region + trend + season, data=dat_5)
+summary(mod_1)
+
+CV_mod_1<-data.frame(t(CV(mod_1)))
+rownames(CV_mod_1)="mod_1"
+CV_mod_1
+
+```
+
+Andando a confrontare i coefficienti si nota che le serie storiche considerate sono statisticamente significative, mentre risulta che il trend e la stagionalità non sono statisticamente significative.
+Dato che la componente principale della serie è il trend si procede con l'eliminazione della stagionalità.
+
+```{r , warning=FALSE,message=FALSE}
+mod_2<-tslm(formula = Revenue ~ Sales_quantity + Average_cost + The_average_annual_payroll_of_the_region + trend , data=dat_5)
+summary(mod_2)
+
+CV_mod_2<-data.frame(t(CV(mod_2)))
+rownames(CV_mod_2)="mod_2"
+CV_mod_2
+```
+
+L'eliminazione della stagionalità ha comportato variazioni nella significatività di tali parametri.
+L'intercetta, Sales_quantity e average_cost continuano ad essere statisticamente significative al 0.5%, mentre The_average_annual_payroll_of_the_region è statisticamente significativa al 10%.
+Confrontando le misure di accuratezza si ottengono valori contrastanti, infatti L'AIC consiglia di utilizzare il modello più complesso, mentre il BIC consiglia il modello meno complesso.
+Data la differenza tra i valori di AICc dei due modelli si può considerare il modello più complesso come migliore.
+Un'altro modo per valutare quale tra i due può essere considerato il modello migliore è vedere se nei coefficienti ci sono state variazioni significative.
+non si notano grosse variazioni nei coefficienti, ma escludendo la stagionalità risulta che il trend presenta un coefficiente negativo e quindi influenza negativamente la serie.
+
+```{r , warning=FALSE,message=FALSE}
+mod_3<-tslm(formula = Revenue ~ Sales_quantity + Average_cost + The_average_annual_payroll_of_the_region + season ,data=dat_5)
+summary(mod_3)
+
+CV_mod_3<-data.frame(t(CV(mod_3)))
+rownames(CV_mod_3)="mod_3"
+CV_mod_3
+```
+
+```{r , warning=FALSE,message=FALSE}
+mod_4<-tslm(formula= Revenue ~ Sales_quantity + Average_cost+ The_average_annual_payroll_of_the_region ,data=dat_5)
+summary(mod_4)
+
+CV_mod_4<-data.frame(t(CV(mod_4)))
+rownames(CV_mod_4)="mod_4"
+CV_mod_4
+```
+
+```{r , warning=FALSE,message=FALSE}
+mod_5<-tslm(formula= Revenue ~ Sales_quantity +Average_cost+ trend,data=dat_5)
+summary(mod_5)
+
+CV_mod_5<-data.frame(t(CV(mod_5)))
+rownames(CV_mod_5)="mod_5"
+CV_mod_5
+```
+
+```{r , warning=FALSE,message=FALSE}
+mod_6<-tslm(formula= Revenue ~ Sales_quantity,data=dat_5)
+summary(mod_6)
+
+CV_mod_6<-data.frame(t(CV(mod_6)))
+rownames(CV_mod_6)="mod_6"
+CV_mod_6
+```
+```{r , warning=FALSE,message=FALSE}
+mod_7<-tslm(formula= Revenue ~ Sales_quantity + Average_cost,data=dat_5)
+summary(mod_7)
+
+CV_mod_7<-data.frame(t(CV(mod_7)))
+rownames(CV_mod_7)="mod_7"
+CV_mod_7
+```
+
+Dai modelli costruiti si evince che i modelli migliori sono: il modello più complesso e il modello dove vengono considerate come predittori solo le variabili del dataset (mod_4).
+Per comprendere quale modello è migliore si possono analizzare i residui e vedere se presentano le proprietà desiderate.
+
+### ANALISI DEI RESIDUI MODELLI
+
+```{r , warning=FALSE,message=FALSE}
+checkresiduals(mod_1)
+
+```
+
+```{r , warning=FALSE,message=FALSE}
+checkresiduals(mod_4)
+
+```
+
+Analizzando i residui sembra che entrambi i residui non presentino una struttura, in quanto i residui oscillano intorno a un valore medio 0, presentano variabilità costante e osservando il correlogramma si può notare che per entrambi le baratte delle autocorrelazioni sono interne all'intervallo di confidenza, infatti, anche il test di Breush-Godfrey stabilisce che sono incorrelati.
+Siccome i modelli presentano le proprietà fondamantali non è possibile stabile tramite l'analisi dei residui qual è il modello migliore. Quindi gli strumenti che verrànno usati per selezionare il modello sono le misure di accuratezza definite prima. In conclusione il modello migliore è il modello più complesso.
+
+Sul modello selezionato ha senso verificare se i residui sono correlati con i predittori e con la variabile dipendente.
+
+```{r , warning=FALSE,message=FALSE}
+dat_6<-as.data.frame(dat_5)
+dat_6[,"Residuals"]<-as.numeric(residuals(mod_1))
+p1<- ggplot(dat_6,aes(x=Sales_quantity,y=Residuals))+ geom_point()+ ylab("Residuals revenue") + xlab("Sales quantity")
+p2<- ggplot(dat_6,aes(x=Average_cost,y=Residuals))+ geom_point() + ylab("Residuals revenue") + xlab("Average cost")
+p3<- ggplot(dat_6,aes(x=The_average_annual_payroll_of_the_region,y=Residuals))+ geom_point() + ylab("Residuals revenue") + xlab("The average annual payroll of the region")
+gridExtra::grid.arrange(p1,p2,p3,nrow=2,top ="Scatter plot between residuals and predictors")
+```
+
+```{r , warning=FALSE,message=FALSE}
+corr_res_pred<-rbind(cor(dat_6["Sales_quantity"],dat_6["Residuals"]),
+cor(dat_6["Average_cost"],dat_6["Residuals"]),
+cor(dat_6["The_average_annual_payroll_of_the_region"],dat_6["Residuals"]))
+
+as.data.frame(corr_res_pred)
+```
+
+
+
+```{r , warning=FALSE,message=FALSE}
+ggplot(dat_6,aes(x=Revenue,y=Residuals))+ geom_point() + ylab("Residuals revenue") + xlab("Revenue") + ggtitle("Scatter plot between residuals and revenue")
+as.data.frame(cor(dat_6["Revenue"],dat_6["Residuals"]))
+```
+Da tale analisi risulta che tutti i predottori e la variabile dipendente sono incorrelati con i residui. Questa è un'ulteriore prova che il modello considerato è un ottimo modello.
+
+### Previsioni
+
+Esistono due tipi di previsioni: Prevsione ex-ante e prevsioni ex-post.
+In questo lavoro verranno considerate entrambe le situazioni, in quanto le previsioni ex-post permettono di valutare quanto il mdoello ha previsto bene perchè aspettiamo il verificarsi di quel periodo e una volta osservato si procede con l'effettuare previsioni su tale periodo. Invece, le previsioni ex-ante consistono nell' ipotizzare dei scenari oppure basarsi su informazioni disponibili in anticipo e effettuare previsioni.
+
+Per poter effettuare previsioni ex-post è necessario effettuare la divisione in train e test set.
+
+```{r , warning=FALSE,message=FALSE}
+y<-dim(dat)[1]
+train<- ts(dat_5[1:x,],frequency=12,start=2015)
+test<-as.data.frame(dat_5[(x+1):y,])
+```
+
+```{r , warning=FALSE,message=FALSE}
+mod_finale<-tslm(formula = Revenue ~ Sales_quantity + Average_cost + The_average_annual_payroll_of_the_region + trend + season, data=train)
+summary(mod_finale)
+```
+
+```{r , warning=FALSE,message=FALSE}
+fcast_1<- forecast(mod_finale,test,level=95)
+fcast_1
+```
+
+```{r , warning=FALSE,message=FALSE}
+autoplot(Revenue)+
+autolayer(fcast_1,series= "fitted",PI=FALSE) + ggtitle("Comparison between forecasts and real data in 2019 ")
+```
+
+Dal confronto tra le previsioni e i dati reali risulta che il modello riesce e generalizzare abbastanza bene la popolazione, in quanto tali previsioni presentano solo delle piccole differenze con i valori reali.
+
+Per un'azienda sarebbe importante andare a comprendere cosa dovesse accadere nel momento in cui dovessero presentarsi delle situazioni particolari e quindi comprendere quale sarebbe la soluzione migliore da prendere. 
+
+Inizialmente ipotizziamo uno scenario dove si ha un incremento dei costi medi, con relativa riduzione di vendita. Questo scenario permette all'impresa di gestire momenti di crisi, ad esempio il covid. Non si ha nessuna informazione su tale azienda in quel periodo, però prevedere uno scenario di questo tipo aiuterebbe i manager a prendere la scelta migliore.
+
+```{r , warning=FALSE,message=FALSE}
+scenario_1<- data.frame("Sales_quantity"= c(15000,17000,13000,14560),
+                        "Average_cost"= c(1721.12,1923.90,2189.00,1827.43),
+                        "The_average_annual_payroll_of_the_region"=rep(29878525,4))
+```
+
+
+```{r , warning=FALSE,message=FALSE}
+fcast_1<- forecast(mod_finale,scenario_1,level=95)
+autoplot(fcast_1) + ggtitle("Forecast from Linear regression model in a specific scenario")
+```
+Come ci saremmo aspettati si ha avuto un grosso decremento dei ricavi, quindi sulla base di tale strumento si può creare un vantaggio competitivo, in quanto è possibile già essere consapevoli delle decisioni da prendere e quindi rispondere in maniera tempestiva a un cambiamento drastico del mercato in modo da creare un vantaggio competitivo rispetto ai propri competitor.
+
+```{r , warning=FALSE,message=FALSE}
+scenario_2<- data.frame("Sales_quantity"= c(22000,34000,15000,23460),
+                        "Average_cost"= c(1021.12,1923.90,2589.00,1627.43),
+                        "The_average_annual_payroll_of_the_region"=rep(29878525,4))
+```
+
+
+```{r , warning=FALSE,message=FALSE}
+fcast_2<- forecast(mod_finale,scenario_2,level=95)
+autoplot(fcast_2) + ggtitle("Forecast from Linear regression model in a specific scenario")
+```
+
+
+# Conclusioni
+
+In conclusione si può affermare che nessuna serie presenta dati mancanti e valori anomali, quindi non è stato necessario fare nessuna valutazione su questi aspetti. Tutte le serie presentano le componenti principali escluso la ciclicità, ovvero trend e stagionalità. Quindi ci troviamo in presenza di serie storiche non stazionarie. Una volta individuate tali compenenti è stato possibile fare previsoni, in particolare tale lavoro si sofferma prima sui modelli di benchmark. Risulta che il miglior modello è il seasonal naive, in quanto cattura la componente stagionale. Siccome tali modelli sono utilizzati come metodo di confronto con modelli più complessi sono stati realizzati modelli di regressioni lineari multipli. Tra tali modelli è stato selezionato il migliore, ovvero il modello più complesso in quanto presenta un AICc più basso. Su tale modello è stata effettuata un analisi dei residui ed è risultato che tali residui presentano le proprietà fondamentali.
+Infine si è passati a fare previsioni ex-ante e ex-post. Inoltre, non è stato specificato nessun modello di regressione non lineare in quanto non avrebbe avuto senso dato che la la componente di trend è rappresentata da una funzione lineare.
+
